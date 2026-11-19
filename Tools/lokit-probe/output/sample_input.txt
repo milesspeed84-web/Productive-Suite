@@ -1,0 +1,4 @@
+Nexus Productivity Suite — Offline Document Engine Test
+
+This is a verified test document loaded and rendered via LibreOfficeKit.
+Created locally on Windows 11.

@@ -1,0 +1,76 @@
+﻿# Backups
+**/Backups/
+**/backup/
+**/backups/
+*.bak
+*.backup
+*.old
+*.orig
+
+# Virtual machines
+LinuxVM/
+**/LinuxVM/
+*.vdi
+*.vmdk
+*.vhd
+*.vhdx
+*.qcow2
+
+# AI models
+Models/
+**/Models/
+*.gguf
+*.safetensors
+*.onnx
+*.pt
+*.pth
+
+# Node dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+build/
+target/
+coverage/
+
+# Private project handoff
+NEXUS_MASTER_HANDOFF.md
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# Logs and temporary files
+*.log
+logs/
+temp/
+tmp/
+
+# Generated binary/object files
+*.obj
+
+# OS/editor files
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+
+# LibreOffice runtime and generated outputs
+Tools/nexus-docworker/output/
+Tools/nexus-docworker/*.exe
+
+# Lokit generated output; retain only sample text/CSV fixtures
+Tools/lokit-probe/output/*
+!Tools/lokit-probe/output/sample_input.txt
+!Tools/lokit-probe/output/sample_sheet.csv
+
+# Temporary files and lock files
+*.tmp
+.~lock.*
