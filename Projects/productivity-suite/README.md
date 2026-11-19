@@ -1,81 +1,57 @@
-# React + TypeScript + Vite
+# Nexus — Productivity Suite application
 
-## Project Nexus Writer
+Nexus is the React and TypeScript application for Productive Suite. It currently provides browser-based document management, Writer and Spreadsheet prototypes, and a responsive workspace shell.
 
-Writer is at an early engineering stage. The current React screen is a browser-based editing prototype; it is not yet connected to a native document engine and its DOCX export currently preserves plain text only.
+## Run locally
 
-See [the Writer engine investigation](docs/writer-engine-investigation.md) for the current architecture, LibreOfficeKit findings, verified native smoke test, and remaining integration work. The native worker experiment and its CMake round-trip test are in `E:\ProductivitySuite\Tools\nexus-docworker`.
+Requirements: Node.js and npm.
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```sh
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Vite prints the local development URL in the terminal.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Commands
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the development server. |
+| `npm run build` | Type-check and create a production build. |
+| `npm run preview` | Preview the production build locally. |
+| `npm run lint` | Run ESLint across the application. |
+| `npm test` | Run the Node.js test suite. |
 
-```
+## Main areas
+
+- `src/DocumentLanding.tsx` — document library and workspace entry point
+- `src/Writer.tsx` — browser-based Writer editor
+- `src/Spreadsheet.tsx` — spreadsheet editor and formula interface
+- `src/documents/` — document storage and serialization support
+- `src/spreadsheet/` — spreadsheet-specific utilities
+- `tests/` — storage, formula, clipboard, CSV, Writer, and DOCX tests
+- `docs/` — feature audits and implementation investigations
+
+## Technology
+
+- React 19
+- TypeScript
+- Vite
+- HyperFormula
+- ExcelJS
+- jsPDF
+- html2canvas
+- `docx`
+
+## Writer status
+
+Writer is a browser editing prototype. It is not yet connected to a native document engine. DOCX export preserves supported browser-content structures and should not be assumed to provide desktop word-processor fidelity.
+
+See [the Writer engine investigation](docs/writer-engine-investigation.md) for architecture notes, LibreOfficeKit findings, the native smoke test, and remaining integration work.
+
+## Spreadsheet status
+
+The Spreadsheet prototype includes formulas, multiple sheets, formatting, charts, range operations, find/replace, undo/redo, and CSV/XLSX-oriented workflows. Verify format compatibility with explicit fixtures before relying on round trips.
+
+See [the spreadsheet feature parity notes](docs/spreadsheet-feature-parity.md) for implementation coverage and known gaps.
