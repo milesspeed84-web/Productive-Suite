@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo, useReducer, useSyncExternalStore } from 'react';
 import {
   ArrowLeft, Save, Download, Upload, FileSpreadsheet,
   Plus, Copy, Scissors, ClipboardPaste,
@@ -10,45 +10,23 @@ import { Ribbon, type RibbonTab } from './spreadsheet/Ribbon';
 import { FindReplaceModal } from './spreadsheet/FindReplaceModal';
 import { ChartOverlay, type ChartItem, type ChartType } from './spreadsheet/ChartOverlay';
 import { formatCellValue, type NumberFormatType } from './spreadsheet/formatters';
+import { parseCsv } from './spreadsheet/csv';
+import {
+  applyCellInput,
+  cellColorToCss,
+  extendTableForCell,
+  getCellRawContent,
+  getTableCellAppearance,
+  type CellData,
+  type CellStyle,
+  type SheetData,
+  type SpreadsheetData,
+} from './spreadsheet/types';
+import { exportXlsx as exportWorkbookXlsx, importXlsx } from './spreadsheet/xlsx';
+import { cellEditReducer, editKeyAction } from './spreadsheet/editSession';
 import './Spreadsheet.css';
 
 // ─── Types ───
-interface CellData {
-  v?: string | number;        // raw value
-  f?: string;                 // formula string (without =)
-  s?: CellStyle;              // style
-}
-
-interface CellStyle {
-  bold?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  strikethrough?: boolean;
-  align?: 'left' | 'center' | 'right';
-  wrapText?: boolean;
-  color?: string;
-  bg?: string;
-  fontSize?: number;
-  numberFormat?: string;
-  border?: string;
-}
-
-interface SheetData {
-  name: string;
-  tabColor?: string;
-  cells: Record<string, CellData>;   // "row,col" -> CellData
-  colWidths: Record<number, number>;
-  rowHeights: Record<number, number>;
-  charts?: ChartItem[];
-  frozenRows?: number;
-  frozenCols?: number;
-}
-
-interface SpreadsheetData {
-  sheets: SheetData[];
-  activeSheet: number;
-}
-
 interface CellRef {
   row: number;
   col: number;
@@ -111,7 +89,7 @@ function emptySpreadsheet(): SpreadsheetData {
 }
 
 // ─── Fallback Formula Engine (built-in regex evaluator) ───
-function evaluateFormula(formula: string, getCellValue: (row: number, col: number) => string | number | undefined): string | number {
+function evaluateFormula(formula: string, getCellValue: (row: number, col: number) => string | number | boolean | undefined): string | number | boolean {
   const upper = formula.toUpperCase().trim();
 
   // SUM(range)
@@ -286,8 +264,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   const [title, setTitle] = useState('Untitled spreadsheet');
   const [cursor, setCursor] = useState<CellRef>({ row: 0, col: 0 });
   const [selection, setSelection] = useState<SelectionRange | null>(null);
-  const [editing, setEditing] = useState<CellRef | null>(null);
-  const [editValue, setEditValue] = useState('');
+  const [editSession, dispatchEdit] = useReducer(cellEditReducer, null);
   const [saveStatus, setSaveStatus] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [tabMenu, setTabMenu] = useState<number | null>(null);
@@ -311,8 +288,13 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   const editInputRef = useRef<HTMLInputElement>(null);
   const formulaInputRef = useRef<HTMLInputElement>(null);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const editFinishedRef = useRef(false);
 
   const sheet = data.sheets[data.activeSheet] ?? emptySheet('Sheet 1');
+  const editing = editSession?.cell ?? null;
+  const editValue = editSession?.value ?? '';
+  const editSource = editSession?.source ?? null;
+  useSyncExternalStore(formulaEngine.subscribe, formulaEngine.getVersion, formulaEngine.getVersion);
 
   // ─── HyperFormula Sync ───
   useEffect(() => {
@@ -378,7 +360,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
         rawVal = formulaEngine.getCellValue(s.name, row, col);
       }
       if (rawVal === undefined || rawVal === '#ERROR!') {
-        const getter = (r: number, c: number): string | number | undefined => {
+        const getter = (r: number, c: number): string | number | boolean | undefined => {
           const inner = s.cells[cellKey(r, c)];
           return inner?.v ?? undefined;
         };
@@ -392,10 +374,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   }, [sheet]);
 
   const getCellRawDisplay = useCallback((row: number, col: number): string => {
-    const cell = sheet.cells[cellKey(row, col)];
-    if (!cell) return '';
-    if (cell.f) return `=${cell.f}`;
-    return String(cell.v ?? '');
+    return getCellRawContent(sheet.cells[cellKey(row, col)]);
   }, [sheet]);
 
   // ─── Update helpers ───
@@ -419,44 +398,36 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
     updateSheet(s => {
       const cells = { ...s.cells };
       const key = cellKey(row, col);
-      if (rawValue === '') {
-        const existing = cells[key];
-        if (existing?.s) {
-          cells[key] = { s: existing.s };
-        } else {
-          delete cells[key];
-        }
-      } else if (rawValue.startsWith('=')) {
-        const formula = rawValue.slice(1);
-        cells[key] = { ...cells[key], f: formula, v: undefined };
-      } else {
-        const num = parseFloat(rawValue);
-        const val = !isNaN(num) && rawValue.trim() === String(num) ? num : rawValue;
-        cells[key] = { ...cells[key], v: val, f: undefined };
-      }
-      return { ...s, cells };
+      const updatedCell = applyCellInput(cells[key], rawValue);
+      if (updatedCell) cells[key] = updatedCell;
+      else delete cells[key];
+      return {
+        ...s,
+        cells,
+        ...(rawValue !== '' && s.tables ? { tables: extendTableForCell(s.tables, row, col) } : {}),
+      };
     });
   }, [pushUndo, updateSheet]);
 
   // ─── Editing ───
-  const startEditing = useCallback((row: number, col: number, initialValue?: string) => {
+  const startEditing = useCallback((row: number, col: number, initialValue?: string, source: 'cell' | 'formula' = 'cell') => {
     const raw = initialValue ?? getCellRawDisplay(row, col);
-    setEditing({ row, col });
-    setEditValue(raw);
-    setTimeout(() => editInputRef.current?.focus(), 0);
+    editFinishedRef.current = false;
+    dispatchEdit({ type: 'start', cell: { row, col }, value: raw, source });
+    if (source === 'cell') setTimeout(() => editInputRef.current?.focus(), 0);
   }, [getCellRawDisplay]);
 
   const commitEdit = useCallback(() => {
-    if (!editing) return;
-    setCellValue(editing.row, editing.col, editValue);
-    setEditing(null);
-    setEditValue('');
+    if (!editSession || editFinishedRef.current) return;
+    editFinishedRef.current = true;
+    setCellValue(editSession.cell.row, editSession.cell.col, editSession.value);
+    dispatchEdit({ type: 'finish' });
     gridRef.current?.focus();
-  }, [editing, editValue, setCellValue]);
+  }, [editSession, setCellValue]);
 
   const cancelEdit = useCallback(() => {
-    setEditing(null);
-    setEditValue('');
+    editFinishedRef.current = true;
+    dispatchEdit({ type: 'finish' });
     gridRef.current?.focus();
   }, []);
 
@@ -551,7 +522,10 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
       for (let r = range.start.row; r <= range.end.row; r++)
         for (let c = range.start.col; c <= range.end.col; c++) {
           const key = cellKey(r, c);
-          cells[key] = { ...cells[key], s: { ...cells[key]?.s, bg } };
+          cells[key] = {
+            ...cells[key],
+            s: { ...cells[key]?.s, bg, fill: { type: 'pattern', pattern: 'solid', fgColor: bg } },
+          };
         }
       return { ...s, cells };
     });
@@ -846,12 +820,11 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   }, [pushUndo, debouncedSave, title]);
 
   const switchSheet = useCallback((index: number) => {
+    commitEdit();
     setData(prev => ({ ...prev, activeSheet: index }));
     setCursor({ row: 0, col: 0 });
     setSelection({ start: { row: 0, col: 0 }, end: { row: 0, col: 0 } });
-    setEditing(null);
-    setEditValue('');
-  }, []);
+  }, [commitEdit]);
 
   const renameSheet = useCallback((index: number) => {
     const current = data.sheets[index].name;
@@ -1222,37 +1195,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   // ─── Import / Export ───
   const exportXlsx = useCallback(async () => {
     try {
-      const ExcelJS = await import('exceljs');
-      const workbook = new ExcelJS.Workbook();
-      for (const s of data.sheets) {
-        const ws = workbook.addWorksheet(s.name);
-        for (const [key, cell] of Object.entries(s.cells)) {
-          const [r, c] = key.split(',').map(Number);
-          const excelCell = ws.getCell(r + 1, c + 1);
-          if (cell.f) {
-            excelCell.value = { formula: cell.f };
-          } else if (cell.v !== undefined) {
-            excelCell.value = cell.v;
-          }
-          if (cell.s) {
-            if (cell.s.bold || cell.s.italic || cell.s.underline) {
-              excelCell.font = {
-                bold: cell.s.bold,
-                italic: cell.s.italic,
-                underline: cell.s.underline,
-              };
-            }
-            if (cell.s.align) {
-              excelCell.alignment = { horizontal: cell.s.align };
-            }
-          }
-        }
-        for (let c = 0; c < VISIBLE_COLS; c++) {
-          const width = s.colWidths[c] ?? DEFAULT_COL_WIDTH;
-          ws.getColumn(c + 1).width = Math.round(width / 7);
-        }
-      }
-      const buffer = await workbook.xlsx.writeBuffer();
+      const buffer = await exportWorkbookXlsx(data);
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -1264,7 +1207,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
       console.error('Export XLSX failed:', err);
       alert('Failed to export XLSX.');
     }
-  }, [data.sheets, title]);
+  }, [data, title]);
 
   const exportCsv = useCallback(() => {
     const s = sheet;
@@ -1302,47 +1245,11 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
 
     if (ext === 'xlsx' || ext === 'xls') {
       try {
-        const ExcelJS = await import('exceljs');
-        const workbook = new ExcelJS.Workbook();
         const buffer = await file.arrayBuffer();
-        await workbook.xlsx.load(buffer);
-        const sheets: SheetData[] = [];
-        workbook.eachSheet((ws) => {
-          const s = emptySheet(ws.name);
-          ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
-            row.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-              const key = cellKey(rowNumber - 1, colNumber - 1);
-              const cd: CellData = {};
-              if (cell.type === 2) {
-                cd.v = cell.value as number;
-              } else if (cell.type === 6 && typeof cell.value === 'object' && cell.value && 'formula' in cell.value) {
-                const fv = cell.value as { formula?: string; result?: unknown };
-                cd.f = fv.formula;
-                if (fv.result !== undefined) cd.v = fv.result as string | number;
-              } else {
-                cd.v = cell.text || String(cell.value ?? '');
-              }
-              if (cell.font) {
-                cd.s = {
-                  bold: cell.font.bold,
-                  italic: cell.font.italic,
-                  underline: !!cell.font.underline,
-                };
-              }
-              if (cell.alignment?.horizontal) {
-                cd.s = { ...cd.s, align: cell.alignment.horizontal as 'left' | 'center' | 'right' };
-              }
-              s.cells[key] = cd;
-            });
-          });
-          sheets.push(s);
-        });
-        if (sheets.length > 0) {
-          const newData: SpreadsheetData = { sheets, activeSheet: 0 };
-          setData(newData);
-          setTitle(file.name.replace(/\.(xlsx|xls)$/i, ''));
-          void saveDocument(newData, file.name.replace(/\.(xlsx|xls)$/i, ''));
-        }
+        const newData = await importXlsx(buffer);
+        setData(newData);
+        setTitle(file.name.replace(/\.(xlsx|xls)$/i, ''));
+        void saveDocument(newData, file.name.replace(/\.(xlsx|xls)$/i, ''));
       } catch (err) {
         console.error('XLSX import failed:', err);
         alert('Failed to import the XLSX file.');
@@ -1351,36 +1258,8 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
       try {
         const text = await file.text();
         const s = emptySheet('Sheet 1');
-        const rows = text.split(/\r?\n/);
-        rows.forEach((rowText, ri) => {
-          if (rowText.trim() === '') return;
-          const cols: string[] = [];
-          let current = '';
-          let inQuotes = false;
-          for (let i = 0; i < rowText.length; i++) {
-            const ch = rowText[i];
-            if (inQuotes) {
-              if (ch === '"' && rowText[i + 1] === '"') {
-                current += '"';
-                i++;
-              } else if (ch === '"') {
-                inQuotes = false;
-              } else {
-                current += ch;
-              }
-            } else {
-              if (ch === '"') {
-                inQuotes = true;
-              } else if (ch === ',') {
-                cols.push(current);
-                current = '';
-              } else {
-                current += ch;
-              }
-            }
-          }
-          cols.push(current);
-          cols.forEach((val, ci) => {
+        parseCsv(text).forEach((row, ri) => {
+          row.forEach((val, ci) => {
             if (val === '') return;
             const num = parseFloat(val);
             const v = !isNaN(num) && val.trim() === String(num) ? num : val;
@@ -1494,26 +1373,27 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   // ─── Formula bar editing ───
   const handleFormulaBarFocus = useCallback(() => {
     if (!editing) {
-      startEditing(cursor.row, cursor.col);
+      startEditing(cursor.row, cursor.col, undefined, 'formula');
     }
   }, [editing, cursor, startEditing]);
 
   const handleFormulaBarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     if (!editing) {
-      startEditing(cursor.row, cursor.col, e.target.value);
+      startEditing(cursor.row, cursor.col, e.target.value, 'formula');
     } else {
-      setEditValue(e.target.value);
+      dispatchEdit({ type: 'update', value: e.target.value });
     }
   }, [editing, cursor, startEditing]);
 
   const handleFormulaBarKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    const action = editKeyAction(e.key);
+    if (action === 'commit') {
       e.preventDefault();
       commitEdit();
       const newRow = Math.min(VISIBLE_ROWS - 1, cursor.row + 1);
       selectCell(newRow, cursor.col);
       setCursor(prev => ({ ...prev, row: newRow }));
-    } else if (e.key === 'Escape') {
+    } else if (action === 'cancel') {
       cancelEdit();
     }
   }, [commitEdit, cancelEdit, cursor, selectCell]);
@@ -1535,6 +1415,37 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
   const cursorCell = sheet.cells[cellKey(cursor.row, cursor.col)];
   const cursorStyle = cursorCell?.s;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const gridlinesVisible = sheet.showGridLines ?? showGridlines;
+  const mergedCells = useMemo(() => {
+    const ranges = new Map<string, { rowSpan: number; colSpan: number } | null>();
+    for (const range of sheet.mergedCells ?? []) {
+      const [startAddress, endAddress = startAddress] = range.split(':');
+      const start = parseCellRef(startAddress);
+      const end = parseCellRef(endAddress);
+      if (!start || !end) continue;
+      const rowSpan = Math.min(VISIBLE_ROWS - start.row, Math.abs(end.row - start.row) + 1);
+      const colSpan = Math.min(VISIBLE_COLS - start.col, Math.abs(end.col - start.col) + 1);
+      if (rowSpan < 1 || colSpan < 1) continue;
+      ranges.set(cellKey(start.row, start.col), { rowSpan, colSpan });
+      for (let row = start.row; row < start.row + rowSpan; row++) {
+        for (let col = start.col; col < start.col + colSpan; col++) {
+          if (row !== start.row || col !== start.col) ranges.set(cellKey(row, col), null);
+        }
+      }
+    }
+    return ranges;
+  }, [sheet.mergedCells]);
+
+  const rowOffset = (row: number) => {
+    let offset = showHeadings ? 24 : 0;
+    for (let index = 0; index < row; index++) offset += sheet.rowHeights[index] ?? DEFAULT_ROW_HEIGHT;
+    return offset;
+  };
+  const colOffset = (col: number) => {
+    let offset = showHeadings ? 40 : 0;
+    for (let index = 0; index < col; index++) offset += sheet.colWidths[index] ?? DEFAULT_COL_WIDTH;
+    return offset;
+  };
 
   if (!loaded) {
     return (
@@ -1587,7 +1498,15 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
         onCopy={handleCopy}
         onCut={handleCut}
         onPaste={() => void handlePaste()}
-        cursorStyle={cursorStyle}
+        cursorStyle={cursorStyle ? {
+          ...cursorStyle,
+          align: cursorStyle.align === 'left' || cursorStyle.align === 'center' || cursorStyle.align === 'right'
+            ? cursorStyle.align
+            : undefined,
+          color: cellColorToCss(cursorStyle.color),
+          bg: cellColorToCss(cursorStyle.bg),
+          border: typeof cursorStyle.border === 'string' ? cursorStyle.border : undefined,
+        } : undefined}
         onToggleStyle={toggleStyle}
         onSetAlignment={setAlignment}
         onSetFontSize={setFontSize}
@@ -1609,8 +1528,12 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
         onInsertChart={handleInsertChart}
         showFormulaBar={showFormulaBar}
         onToggleFormulaBar={() => setShowFormulaBar(!showFormulaBar)}
-        showGridlines={showGridlines}
-        onToggleGridlines={() => setShowGridlines(!showGridlines)}
+        showGridlines={gridlinesVisible}
+        onToggleGridlines={() => {
+          const next = !gridlinesVisible;
+          setShowGridlines(next);
+          updateSheet(current => ({ ...current, showGridLines: next }));
+        }}
         showHeadings={showHeadings}
         onToggleHeadings={() => setShowHeadings(!showHeadings)}
         freezeRow={freezeRow}
@@ -1639,6 +1562,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
             onFocus={handleFormulaBarFocus}
             onChange={handleFormulaBarChange}
             onKeyDown={handleFormulaBarKeyDown}
+            onBlur={commitEdit}
             spellCheck={false}
           />
         </div>
@@ -1664,7 +1588,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
         ))}
 
         <div className="ss-grid-scroller" style={{ transform: zoom !== 1 ? `scale(${zoom})` : undefined, transformOrigin: 'top left' }}>
-          <table className={`ss-grid ${!showGridlines ? 'no-gridlines' : ''}`}>
+          <table className={`ss-grid ${!gridlinesVisible ? 'no-gridlines' : ''}`}>
             {showHeadings && (
               <thead>
                 <tr>
@@ -1683,6 +1607,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
                         position: 'sticky',
                         top: 0,
                         zIndex: 10,
+                        display: sheet.hiddenCols?.[c] ? 'none' : undefined,
                       }}
                       onClick={() => {
                         setSelection({ start: { row: 0, col: c }, end: { row: VISIBLE_ROWS - 1, col: c } });
@@ -1698,7 +1623,10 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
             )}
             <tbody>
               {Array.from({ length: VISIBLE_ROWS }, (_, r) => (
-                <tr key={r} style={{ height: sheet.rowHeights[r] ?? DEFAULT_ROW_HEIGHT }}>
+                <tr key={r} style={{
+                  height: sheet.rowHeights[r] ?? DEFAULT_ROW_HEIGHT,
+                  display: sheet.hiddenRows?.[r] ? 'none' : undefined,
+                }}>
                   {showHeadings && (
                     <td
                       className={`ss-row-header ${selection && r >= normalizeRange(selection).start.row && r <= normalizeRange(selection).end.row ? 'selected' : ''}`}
@@ -1706,6 +1634,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
                         position: 'sticky',
                         left: 0,
                         zIndex: 9,
+                        display: sheet.hiddenRows?.[r] ? 'none' : undefined,
                       }}
                       onClick={() => {
                         setSelection({ start: { row: r, col: 0 }, end: { row: r, col: VISIBLE_COLS - 1 } });
@@ -1718,29 +1647,68 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
                   {Array.from({ length: VISIBLE_COLS }, (_, c) => {
                     const cell = sheet.cells[cellKey(r, c)];
                     const style = cell?.s;
-                    const isEditing = editing?.row === r && editing?.col === c;
+                    const merge = mergedCells.get(cellKey(r, c));
+                    if (mergedCells.has(cellKey(r, c)) && merge === null) return null;
+                    const isEditing = editSource === 'cell' && editing?.row === r && editing?.col === c;
                     const isSelected = cursor.row === r && cursor.col === c;
                     const inRange = selection ? isInRange(r, c, selection) : false;
                     const displayValue = getCellDisplayValue(r, c);
+                    const tableAppearance = getTableCellAppearance(sheet, r, c);
 
                     const cellStyle: React.CSSProperties = {
                       width: sheet.colWidths[c] ?? DEFAULT_COL_WIDTH,
                       minWidth: sheet.colWidths[c] ?? DEFAULT_COL_WIDTH,
                     };
-                    if (style?.color) cellStyle.color = style.color;
-                    if (style?.bg) cellStyle.background = style.bg;
+                    const fontColor = cellColorToCss(style?.color) ?? tableAppearance?.color;
+                    const backgroundColor = cellColorToCss(style?.bg) ??
+                      cellColorToCss(style?.fill?.fgColor) ?? tableAppearance?.background;
+                    if (fontColor) cellStyle.color = fontColor;
+                    if (backgroundColor) cellStyle.backgroundColor = backgroundColor;
+                    if (style?.fill?.type === 'gradient' && style.fill.stops?.length) {
+                      const stops = style.fill.stops.map(stop => {
+                        const color = cellColorToCss(stop.color);
+                        return color ? `${color} ${stop.position * 100}%` : '';
+                      }).filter(Boolean);
+                      if (stops.length) {
+                        cellStyle.background = style.fill.gradient === 'path'
+                          ? `radial-gradient(circle, ${stops.join(', ')})`
+                          : `linear-gradient(${style.fill.degree ?? 0}deg, ${stops.join(', ')})`;
+                      }
+                    }
                     if (style?.fontSize) cellStyle.fontSize = style.fontSize;
+                    if (style?.fontFamily) cellStyle.fontFamily = style.fontFamily;
+                    if (style?.verticalAlign) {
+                      cellStyle.verticalAlign = style.verticalAlign === 'top' || style.verticalAlign === 'bottom'
+                        ? style.verticalAlign
+                        : 'middle';
+                    }
+                    if (style?.indent) cellStyle.paddingLeft = `${4 + style.indent * 10}px`;
+                    if (typeof style?.border === 'object') {
+                      for (const side of ['top', 'right', 'bottom', 'left'] as const) {
+                        const edge = style.border[side];
+                        if (!edge?.style) continue;
+                        const widths: Record<string, string> = { hair: '1px', thin: '1px', medium: '2px', thick: '3px', double: '3px' };
+                        const lineStyle = edge.style === 'double' ? 'double' :
+                          edge.style.toLowerCase().includes('dash') || edge.style === 'dotted' ? 'dashed' : 'solid';
+                        const css = `${widths[edge.style] ?? '1px'} ${lineStyle} ${cellColorToCss(edge.color) ?? '#777'}`;
+                        const property = `border${side[0].toUpperCase()}${side.slice(1)}` as 'borderTop' | 'borderRight' | 'borderBottom' | 'borderLeft';
+                        cellStyle[property] = css;
+                      }
+                    }
+                    if (sheet.hiddenCols?.[c]) cellStyle.display = 'none';
 
                     // Sticky freeze support
-                    if (freezeRow && r === 0) {
+                    const frozenRows = Math.max(freezeRow ? 1 : 0, sheet.frozenRows ?? 0);
+                    const frozenCols = Math.max(freezeCol ? 1 : 0, sheet.frozenCols ?? 0);
+                    if (r < frozenRows) {
                       cellStyle.position = 'sticky';
-                      cellStyle.top = showHeadings ? 24 : 0;
+                      cellStyle.top = rowOffset(r);
                       cellStyle.zIndex = 4;
                     }
-                    if (freezeCol && c === 0) {
+                    if (c < frozenCols) {
                       cellStyle.position = 'sticky';
-                      cellStyle.left = showHeadings ? 40 : 0;
-                      cellStyle.zIndex = 4;
+                      cellStyle.left = colOffset(c);
+                      cellStyle.zIndex = r < frozenRows ? 6 : 4;
                     }
 
                     const classes = ['ss-cell'];
@@ -1752,15 +1720,30 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
                     if (style?.underline) classes.push('underline');
                     if (style?.strikethrough) classes.push('strikethrough');
                     if (style?.wrapText) classes.push('wrap-text');
-                    if (style?.border) classes.push(`border-${style.border}`);
-                    if (style?.align) classes.push(`align-${style.align}`);
-                    else if (typeof cell?.v === 'number' || (displayValue && !isNaN(parseFloat(displayValue)))) classes.push('align-right');
+                    if (style?.border && typeof style.border === 'string') classes.push(`border-${style.border}`);
+                    if (style?.align) {
+                      const textAlignment: Record<NonNullable<CellStyle['align']>, React.CSSProperties['textAlign']> = {
+                        left: 'left',
+                        center: 'center',
+                        right: 'right',
+                        fill: 'right',
+                        justify: 'justify',
+                        centerContinuous: 'center',
+                        distributed: 'justify',
+                      };
+                      cellStyle.textAlign = textAlignment[style.align];
+                      if (['left', 'center', 'right'].includes(style.align)) classes.push(`align-${style.align}`);
+                    }
+                    if (tableAppearance?.bold) classes.push('bold');
+                    if (!style?.align && !tableAppearance && (typeof cell?.v === 'number' || (displayValue && !isNaN(parseFloat(displayValue))))) classes.push('align-right');
 
                     return (
                       <td
                         key={c}
                         className={classes.join(' ')}
                         style={cellStyle}
+                        colSpan={merge?.colSpan}
+                        rowSpan={merge?.rowSpan}
                         onMouseDown={e => handleCellMouseDown(r, c, e)}
                         onMouseEnter={() => handleCellMouseEnter(r, c)}
                         onDoubleClick={() => startEditing(r, c)}
@@ -1770,9 +1753,10 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
                             ref={editInputRef}
                             className="ss-cell-input"
                             value={editValue}
-                            onChange={e => setEditValue(e.target.value)}
+                            onChange={e => dispatchEdit({ type: 'update', value: e.target.value })}
                             onKeyDown={e => {
-                              if (e.key === 'Enter') {
+                              const action = editKeyAction(e.key);
+                              if (action === 'commit') {
                                 e.preventDefault();
                                 commitEdit();
                                 const newRow = Math.min(VISIBLE_ROWS - 1, cursor.row + 1);
@@ -1785,7 +1769,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
                                 const newCol = Math.max(0, Math.min(VISIBLE_COLS - 1, cursor.col + dir));
                                 selectCell(cursor.row, newCol);
                                 setCursor(prev => ({ ...prev, col: newCol }));
-                              } else if (e.key === 'Escape') {
+                              } else if (action === 'cancel') {
                                 cancelEdit();
                               }
                             }}
@@ -1813,7 +1797,7 @@ export default function Spreadsheet({ documentId, onBack }: SpreadsheetProps) {
           <button
             key={i}
             className={`ss-sheet-tab ${i === data.activeSheet ? 'active' : ''}`}
-            style={{ borderBottomColor: s.tabColor || (i === data.activeSheet ? 'var(--ss-accent)' : 'transparent') }}
+            style={{ borderBottomColor: cellColorToCss(s.tabColor) || (i === data.activeSheet ? 'var(--ss-accent)' : 'transparent') }}
             onClick={() => switchSheet(i)}
             onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setTabMenu(i); }}
             onDoubleClick={() => renameSheet(i)}

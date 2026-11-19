@@ -45,7 +45,7 @@
 | Range Selection | Click & drag multi-cell rectangular range | Web & Desktop | **Complete and verified** | Mouse move handler | P0 | Interactive test |
 | Keyboard Navigation | Arrows, Tab, Shift+Tab, Enter, Shift+Enter | Web & Desktop | **Complete and verified** | Keydown handler | P0 | Key event test |
 | Name Box & Jump | Display coordinate (`A1`), type coordinate to jump | Web & Desktop | **Complete and verified** | Coordinate parser | P0 | Unit & UI test |
-| Formula Bar | Dedicated `fx` input bar synchronized with cell | Web & Desktop | **Complete and verified** | In-sync formula input | P0 | UI input test |
+| Formula Bar | Dedicated `fx` input bar synchronized with cell | Web & Desktop | **Complete and verified** | Shows raw formulas/values; Enter commits, Escape cancels, cell changes commit drafts | P0 | Edit-state tests & live UI check |
 | In-Cell Editing | Double-click or start typing to edit cell in place | Web & Desktop | **Complete and verified** | Cell overlay input | P0 | UI editing test |
 | Copy / Cut / Paste | Copy cell data & formatting with clipboard | Web & Desktop | **Complete and verified** | Async Clipboard API | P0 | Clipboard test |
 | Fill Handle & Autofill | Drag corner handle to copy or extend series | Web & Desktop | **Partially implemented** | Selection handle UI | P1 | Interactive test |
@@ -69,7 +69,7 @@
 | Vertical Alignment | Top, Middle, Bottom align | Web & Desktop | **Partially implemented** | CSS vertical-align | P1 | Visual verification |
 | Text Wrapping | Wrap overflowing text within cell | Web & Desktop | **Partially implemented** | CSS white-space normal | P1 | Render test |
 | Merge & Center | Combine adjacent cells into one block | Web & Desktop | **Partially implemented** | Colspan/rowspan model | P1 | Grid render test |
-| Number Formats | Currency, Percentage, Date, Time, Scientific, Text | Web & Desktop | **Partially implemented** | Intl.NumberFormat / HyperFormula | P1 | Format parser test |
+| Number Formats | Currency, Percentage, Date, Time, Scientific, Text | Web & Desktop | **Partially implemented** | Preserves Excel number-format codes; renders common currency, percent, decimal, and date formats | P1 | Format parser test |
 | Borders & Border Presets | Bottom, Top, Left, Right, All, Thick Box borders | Web & Desktop | **Partially implemented** | CSS border styling | P1 | Visual verification |
 | Clear Formats / Contents | Reset style or empty cell value | Web & Desktop | **Complete and verified** | Context menu action | P0 | State test |
 | Conditional Formatting | Highlight cells based on rules (e.g. > X) | Web & Desktop | **Not implemented** | Rule evaluation engine | P2 | Rule evaluation test |
@@ -102,7 +102,7 @@
 |---|---|---|---|---|---|---|
 | Sort Ascending / Descending | Sort selection or whole column alphabetically / numerically | Web & Desktop | **Complete and verified** | Sort algorithms | P0 | Array sort test |
 | AutoFilter | Header filter dropdowns for column value filtering | Web & Desktop | **Partially implemented** | Filter predicate engine | P1 | UI filter test |
-| Data Tables | Structured Excel-style table with header & zebra striping | Web & Desktop | **Partially implemented** | Table range definition | P1 | Style & range test |
+| Data Tables | Structured Excel-style table with header & zebra striping | Web & Desktop | **Partially implemented** | Imports/exports table names, ranges, columns, totals metadata and built-in style identifiers; renders header and row bands | P1 | XLSX round-trip test |
 | Text to Columns | Split delimited strings (comma, tab, space) into columns | Web & Desktop | **Partially implemented** | String split parser | P2 | Dialog & parsing test |
 | Data Validation | Restrict cell input to dropdown list, numbers, or dates | Web & Desktop | **Partially implemented** | Input validator hook | P2 | Input alert test |
 | Remove Duplicates | Scan range and discard identical rows | Web & Desktop | **Partially implemented** | Hash set deduplicator | P2 | Unit test |
@@ -127,13 +127,13 @@
 
 | Excel Capability | Description | Target Scope | Current Status | Dependencies / Notes | Priority | Verification Method |
 |---|---|---|---|---|---|---|
-| XLSX Export | Full multi-sheet workbook export to standard `.xlsx` | Web & Desktop | **Complete and verified** | `exceljs` library | P0 | Excel file round-trip |
-| XLSX Import | Open external `.xlsx` files created by Excel/Calc | Web & Desktop | **Complete and verified** | `exceljs` loader | P0 | Import test |
+| XLSX Export | Multi-sheet workbook export to standard `.xlsx` | Web & Desktop | **Partially implemented** | `exceljs`; supported cell styles, table definitions, merges, dimensions, panes and visibility metadata | P0 | XLSX round-trip test |
+| XLSX Import | Open external `.xlsx` files created by Excel/Calc | Web & Desktop | **Partially implemented** | Imports values/formulas, common cell styles, tables, merged ranges, dimensions, panes and hidden rows/columns | P0 | XLSX fixture test |
 | CSV Export | Fast export of active sheet as comma-separated values | Web & Desktop | **Complete and verified** | RFC 4180 CSV builder | P0 | String/file test |
 | CSV Import | Parse delimited CSV into grid cells | Web & Desktop | **Complete and verified** | CSV parser with quotes | P0 | String/file test |
 | PDF Export | Export printable spreadsheet pages to vector PDF | Web & Desktop | **Partially implemented** | `jspdf` + `html2canvas` | P1 | PDF download test |
 | Formula Round-Trip | Ensure formula syntax (`=SUM(A1:B5)`) survives XLSX save/load | Web & Desktop | **Complete and verified** | ExcelJS formula types | P0 | Round-trip unit test |
-| Formatting Round-Trip | Preserve fonts, alignment, and basic styling across XLSX | Web & Desktop | **Complete and verified** | ExcelJS font/align | P0 | Round-trip unit test |
+| Formatting Round-Trip | Preserve common cell styles and number formats across XLSX | Web & Desktop | **Partially implemented** | ExcelJS styles; built-in table theme rendering is approximate in the browser UI | P0 | XLSX fixture round-trip test |
 
 ---
 

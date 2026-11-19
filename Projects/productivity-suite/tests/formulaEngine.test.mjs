@@ -92,3 +92,42 @@ test('HyperFormula handles circular references cleanly without crashing', () => 
   const val = formulaEngine.getCellValue('Sheet1', 0, 0);
   assert.match(String(val), /#CYCLE|#REF|#ERROR/);
 });
+
+test('formula bar formulas evaluate and recalculate dependent cells after edits', () => {
+  const sheets = [{
+    name: 'Sheet1',
+    cells: {
+      '0,0': { v: 12 },
+      '0,1': { v: 5 },
+      '1,0': { v: 5 },
+      '0,2': { f: 'A1+B1' },
+      '0,3': { f: 'SUM(A1:A10)' },
+      '0,4': { f: 'AVERAGE(A1:A10)' },
+      '0,5': { f: 'IF(A1>10,"High","Low")' },
+    },
+  }];
+
+  formulaEngine.syncWorkbook(sheets, 20, 10);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 2), 17);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 3), 17);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 4), 8.5);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 5), 'High');
+
+  sheets[0].cells['0,0'].v = 4;
+  formulaEngine.syncWorkbook(sheets, 20, 10);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 2), 9);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 3), 9);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 4), 4.5);
+  assert.equal(formulaEngine.getCellValue('Sheet1', 0, 5), 'Low');
+});
+
+test('formula recalculation notifies subscribed views', () => {
+  let notifications = 0;
+  const unsubscribe = formulaEngine.subscribe(() => { notifications += 1; });
+  const previousVersion = formulaEngine.getVersion();
+  formulaEngine.syncWorkbook([{ name: 'Reactive', cells: { '0,0': { v: 1 } } }]);
+  unsubscribe();
+
+  assert.equal(formulaEngine.getVersion(), previousVersion + 1);
+  assert.equal(notifications, 1);
+});

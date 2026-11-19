@@ -2,7 +2,7 @@ import { HyperFormula } from 'hyperformula';
 
 export interface SheetCellValues {
   [rowColKey: string]: {
-    v?: string | number;
+    v?: string | number | boolean;
     f?: string;
   };
 }
@@ -74,6 +74,8 @@ export function copyFormulaRelative(formula: string, rowOffset: number, colOffse
 export class SpreadsheetFormulaEngine {
   private hf: HyperFormula | null = null;
   private sheetIdMap: Map<string, number> = new Map();
+  private version = 0;
+  private listeners = new Set<() => void>();
 
   constructor() {
     this.init();
@@ -131,7 +133,16 @@ export class SpreadsheetFormulaEngine {
     } catch (error) {
       console.warn('HyperFormula sync error:', error);
     }
+    this.version += 1;
+    for (const listener of this.listeners) listener();
   }
+
+  public subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  public getVersion = () => this.version;
 
   public getCellValue(sheetName: string, row: number, col: number): string | number | boolean | undefined {
     if (!this.hf) return undefined;
