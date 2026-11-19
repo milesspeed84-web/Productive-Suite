@@ -4,6 +4,60 @@
 
 > **Project status:** Active development. The browser-based Writer and Spreadsheet experiences are usable prototypes. Native LibreOfficeKit integration is currently an experimental smoke test and is not connected to the Nexus UI.
 
+## Install and operate
+
+### 1. Install the requirements
+
+Install [Node.js](https://nodejs.org/) 22 or newer, which includes npm, and install Git if it is not already available.
+
+Verify the tools:
+
+```sh
+git --version
+node --version
+npm --version
+```
+
+### 2. Download the project
+
+```sh
+git clone https://github.com/milesspeed84-web/Productive-Suite.git
+cd Productive-Suite/Projects/productivity-suite
+```
+
+If you already downloaded the repository, open a terminal in `Productive-Suite/Projects/productivity-suite` instead.
+
+### 3. Install application dependencies
+
+```sh
+npm install
+```
+
+### 4. Start Nexus
+
+```sh
+npm run dev
+```
+
+Open the local address printed by Vite, usually `http://localhost:5173`, in a modern browser. Keep the terminal open while using the application. Press `Ctrl+C` in the terminal to stop the server.
+
+### 5. Use the application
+
+- Open **Documents** to view or create local documents.
+- Open **Writer** to create and edit a document.
+- Open **Spreadsheet** to create sheets, enter formulas, and format cells.
+- Use the browser controls to import or export supported files where available.
+- Documents and spreadsheets are stored locally in browser storage. Clearing browser data or using a private session can remove or separate saved work.
+
+### Optional production build
+
+```sh
+npm run build
+npm run preview
+```
+
+Open the preview address printed by Vite to test the production build locally.
+
 ## Highlights
 
 - **Local document library** — create, open, rename, duplicate, and delete documents using browser storage.
@@ -37,21 +91,12 @@ Productive-Suite/
 
 ## Requirements
 
-- [Node.js](https://nodejs.org/) (22 or later recommended)
+- [Node.js](https://nodejs.org/) 22 or newer
 - npm
+- Git
 - A modern browser
 
 The native document-worker smoke test additionally requires CMake, Ninja, a C++17 compiler, Python 3, and a LibreOffice installation that exposes LibreOfficeKit headers and runtime libraries.
-
-## Run Nexus locally
-
-```sh
-cd Projects/productivity-suite
-npm install
-npm run dev
-```
-
-Open the local URL printed by Vite in the terminal.
 
 ## Development commands
 
