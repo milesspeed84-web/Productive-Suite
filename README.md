@@ -1,49 +1,49 @@
 # Productive Suite
 
-Productive Suite is a local-first productivity workspace built around **Nexus**, a browser application for documents, spreadsheets, and everyday time and scheduling tools.
+**Productive Suite** is an open, local-first productivity workspace centered on **Nexus**, a React application for documents, spreadsheets, scheduling tools, and future productivity features.
 
-> **Project status:** This repository is under active development. Writer is currently a browser-based editing prototype, and the native LibreOfficeKit worker is an integration experiment rather than a production document engine.
+> **Project status:** Active development. The browser-based Writer and Spreadsheet experiences are usable prototypes. Native LibreOfficeKit integration is currently an experimental smoke test and is not connected to the Nexus UI.
 
-## Features
+## Highlights
 
-### Nexus workspace
-
-- Local document library backed by browser storage
-- Rich Writer prototype with formatting, tables, images, pagination, page navigation, find/replace, and recovery drafts
-- Spreadsheet prototype with multiple sheets, formulas, formatting, charts, undo/redo, find/replace, and XLSX/CSV workflows
-- Responsive workspace navigation for documents and productivity tools
-
-### Spreadsheet utilities
-
-- HyperFormula-powered formulas and cross-sheet calculations
-- Range copy, cut, and paste helpers
-- CSV parsing and serialization that support quotes, commas, escaped quotes, CRLF input, and embedded line breaks
-- Node.js tests for formulas, spreadsheet storage, clipboard ranges, CSV round trips, and document storage
-
-### World clock
-
-A digital clock and time-zone experience is planned for Nexus. When implemented, it will display the current time in the browser's local time zone and in configurable locations using the standard `Intl` time-zone API.
+- **Local document library** — create, open, rename, duplicate, and delete documents using browser storage.
+- **Nexus Writer** — a browser editing prototype with formatting, tables, images, pagination, find/replace, undo/redo, history, recovery drafts, and DOCX-oriented workflows.
+- **Nexus Spreadsheet** — multiple sheets, HyperFormula calculations, formatting, charts, range operations, undo/redo, find/replace, and CSV/XLSX-oriented workflows.
+- **Local-first behavior** — application data is kept in the browser rather than sent to a remote account service.
+- **Native integration research** — a separate LibreOfficeKit probe and C++ document-worker smoke test document and exercise native document-engine possibilities.
 
 ## Repository layout
 
 ```text
-Projects/
-  productivity-suite/   Nexus React, TypeScript, and Vite application
-Tools/
-  lokit-probe/          LibreOfficeKit investigation/probe
-  nexus-docworker/      Native document-worker smoke test
+Productive-Suite/
+├── Projects/
+│   └── productivity-suite/    Nexus React, TypeScript, and Vite application
+│       ├── src/               Application source and styles
+│       ├── tests/             Node.js test suite
+│       └── docs/              Writer and spreadsheet implementation notes
+└── Tools/
+    ├── lokit-probe/           LibreOfficeKit investigation utilities
+    └── nexus-docworker/       Native LibreOfficeKit smoke test
 ```
+
+## Technology
+
+- **Application:** React 19, TypeScript, Vite
+- **Writer:** browser editing, HTML/DOCX-oriented utilities
+- **Spreadsheet:** HyperFormula, ExcelJS, and browser storage
+- **PDF/image support:** jsPDF and html2canvas
+- **Native experiments:** C/C++17, CMake, and LibreOfficeKit
+- **Testing:** Node.js test runner and TypeScript-stripped ESM tests
 
 ## Requirements
 
-- Node.js and npm
-- A modern web browser
+- [Node.js](https://nodejs.org/) (22 or later recommended)
+- npm
+- A modern browser
 
-The native smoke-test tool additionally requires CMake, Ninja, a C++17 compiler, Python 3, and a LibreOffice installation that provides LibreOfficeKit headers and runtime libraries.
+The native document-worker smoke test additionally requires CMake, Ninja, a C++17 compiler, Python 3, and a LibreOffice installation that exposes LibreOfficeKit headers and runtime libraries.
 
-See [`Tools/nexus-docworker/README.md`](Tools/nexus-docworker/README.md) for platform-specific build instructions.
-
-## Run the Nexus application
+## Run Nexus locally
 
 ```sh
 cd Projects/productivity-suite
@@ -51,45 +51,52 @@ npm install
 npm run dev
 ```
 
-Vite prints the local development URL in the terminal.
+Open the local URL printed by Vite in the terminal.
 
-## Available application commands
+## Development commands
 
 Run these commands from `Projects/productivity-suite`:
 
 | Command | Description |
 | --- | --- |
 | `npm run dev` | Start the Vite development server. |
-| `npm run build` | Type-check and create a production build. |
+| `npm run build` | Type-check and build the production bundle. |
 | `npm run preview` | Preview the production build locally. |
 | `npm run lint` | Run ESLint. |
 | `npm test` | Run the Node.js test suite. |
 
-## Native document-worker smoke test
-
-`Tools/nexus-docworker` verifies a small LibreOfficeKit workflow, including initialization, rendering, text input, DOCX saving, reopening, and OOXML content checks.
-
-This executable is not yet integrated with the React application and should not be considered a production worker or desktop host.
-
-## Current limitations
-
-- The Writer interface is a browser editing prototype, not an engine-backed desktop editor.
-- Presentation, mail, meetings, notes, files, and AI features may remain placeholders while they are developed.
-- XLSX support should be verified through round-trip fixtures; no `.xls` support is guaranteed.
-- The native LibreOfficeKit worker is a Windows-tested smoke test. The Linux build path is documented but has not been completed in this environment.
-- DOCX and spreadsheet format compatibility should not be assumed beyond the verified test cases.
-
-See [`Projects/productivity-suite/docs/writer-engine-investigation.md`](Projects/productivity-suite/docs/writer-engine-investigation.md) for the current Writer architecture, LibreOfficeKit findings, verification state, and remaining integration work.
-
 ## Testing
 
-The application uses Node.js tests for document storage, spreadsheet formulas and storage, Writer history and DOCX behavior, clipboard ranges, and CSV round trips.
+The test suite covers document storage, spreadsheet formulas and storage, Writer history, DOCX behavior, range clipboard operations, and CSV round trips.
 
 ```sh
 cd Projects/productivity-suite
 npm test
 ```
 
+## Native document-worker smoke test
+
+`Tools/nexus-docworker` is an experimental executable that initializes LibreOfficeKit, creates a Writer view, renders a tile, sends text-input events, saves a DOCX, reopens it, and checks OOXML content.
+
+It is **not** yet integrated with the React application and should not be treated as a production desktop host.
+
+Build and run instructions are available in [`Tools/nexus-docworker/README.md`](Tools/nexus-docworker/README.md).
+
+## Documentation
+
+- [Writer engine investigation](Projects/productivity-suite/docs/writer-engine-investigation.md)
+- [Writer feature audit](Projects/productivity-suite/docs/writer-feature-audit.md)
+- [Writer document library](Projects/productivity-suite/docs/writer-document-library.md)
+- [Spreadsheet feature parity](Projects/productivity-suite/docs/spreadsheet-feature-parity.md)
+
+## Current limitations
+
+- Writer is a browser editing prototype, not an engine-backed desktop editor.
+- Presentation, mail, meetings, notes, files, and AI areas may remain placeholders while they are developed.
+- XLSX/XLS and DOCX compatibility should not be assumed beyond the tested workflows.
+- LibreOfficeKit support is a Windows-tested experiment; the Linux build path is documented but has not been completed in this environment.
+- Browser storage and in-app behavior should be tested when changing storage formats or recovery logic.
+
 ## Contributing
 
-Keep browser features separate from native LibreOfficeKit experiments, document new format limitations honestly, and add tests for persistence, import/export, formulas, clipboard behavior, and time-zone formatting where applicable.
+Keep browser application features separate from native LibreOfficeKit experiments. Document format limitations honestly and add tests for persistence, import/export, formulas, clipboard behavior, recovery, and native-engine experiments.
